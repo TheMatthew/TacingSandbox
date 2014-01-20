@@ -471,24 +471,30 @@ public interface LTTngRelayDCommands2_4 {
     /**
      * VIEWER_GET_NEXT_INDEX payload.
      */
-    public class lttng_viewer_get_next_index implements RelayResponse {
+    public class lttng_viewer_get_next_index implements RelayCommand, FixedSize {
         /**
          * the id of thje stream
          */
         public long stream_id;
 
         @Override
-        public void populate(byte[] data) {
+        public byte[] getBytes() {
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            stream_id = bb.getLong();
+            bb.putLong(stream_id);
+            return data;
+        }
+
+        @Override
+        public int size() {
+            return Long.SIZE / 8;
         }
     }
 
     /**
      * the index?
      */
-    public class lttng_viewer_index implements RelayResponse {
+    public class lttng_viewer_index implements RelayResponse, FixedSize {
         public long offset;
         public long packet_size;
         public long content_size;
@@ -512,26 +518,37 @@ public interface LTTngRelayDCommands2_4 {
             events_discarded = bb.getLong();
             stream_id = bb.getLong();
 
-            status = lttng_viewer_next_index_return_code.values()[bb.getInt()];
+            status = lttng_viewer_next_index_return_code.values()[bb.getInt() - 1];
             flags = bb.getInt();
+        }
+
+        @Override
+        public int size() {
+            return (Long.SIZE * 7 + Integer.SIZE * 2) / 8;
         }
     }
 
     /**
      * VIEWER_GET_PACKET payload.
      */
-    public class lttng_viewer_get_packet implements RelayResponse {
+    public class lttng_viewer_get_packet implements RelayCommand, FixedSize {
         public long stream_id;
         public long offset;
         public int len;
 
         @Override
-        public void populate(byte[] data) {
+        public byte[] getBytes() {
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            stream_id = bb.getLong();
-            offset = bb.getLong();
-            len = bb.getInt();
+            bb.putLong(stream_id);
+            bb.putLong(offset);
+            bb.putInt(len);
+            return data;
+        }
+
+        @Override
+        public int size() {
+            return (Long.SIZE + Long.SIZE + Integer.SIZE) / 8;
         }
     }
 
@@ -539,7 +556,7 @@ public interface LTTngRelayDCommands2_4 {
      * Response to getpacket command
      */
     public class lttng_viewer_trace_packet implements RelayResponse {
-        public int status; /* enum lttng_viewer_get_packet_return_code */
+        public lttng_viewer_get_packet_return_code status; /* enum lttng_viewer_get_packet_return_code */
         public int len;
         public int flags;
         public byte data[];
@@ -548,28 +565,32 @@ public interface LTTngRelayDCommands2_4 {
         public void populate(byte[] input) {
             ByteBuffer bb = ByteBuffer.wrap(input);
             bb.order(ByteOrder.BIG_ENDIAN);
-            status = bb.getInt();
+            status = lttng_viewer_get_packet_return_code.values()[bb.getInt() - 1];
             len = bb.getInt();
             flags = bb.getInt();
-            data = new byte[len];
-            bb.get(data, 0, len);
         }
     }
 
     /**
      * VIEWER_GET_METADATA payload.
      */
-    public class lttng_viewer_get_metadata implements RelayResponse {
+    public class lttng_viewer_get_metadata implements FixedSize, RelayCommand {
         /**
          * The stream id
          */
         public long stream_id;
 
         @Override
-        public void populate(byte[] data) {
+        public byte[] getBytes() {
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            stream_id = bb.getInt();
+            bb.putLong(stream_id);
+            return data;
+        }
+
+        @Override
+        public int size() {
+            return Long.SIZE / 8;
         }
     }
 
@@ -583,9 +604,7 @@ public interface LTTngRelayDCommands2_4 {
             ByteBuffer bb = ByteBuffer.wrap(input);
             bb.order(ByteOrder.BIG_ENDIAN);
             len = bb.getLong();
-            status = lttng_viewer_get_metadata_return_code.values()[bb.getInt()];
-            data = new byte[(int) len];
-            bb.get(data, 0, (int) len);
+            status = lttng_viewer_get_metadata_return_code.values()[bb.getInt() - 1];
         }
     }
 

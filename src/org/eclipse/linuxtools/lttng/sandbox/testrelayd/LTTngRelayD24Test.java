@@ -12,6 +12,7 @@
 package org.eclipse.linuxtools.lttng.sandbox.testrelayd;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.DataInputStream;
@@ -29,9 +30,17 @@ import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lt
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_command;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_connect;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_connection_type;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_get_metadata;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_get_metadata_return_code;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_get_next_index;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_get_packet;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_get_packet_return_code;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_index;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_list_sessions;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_metadata_packet;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_session;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_stream;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_trace_packet;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -71,7 +80,9 @@ public class LTTngRelayD24Test {
         establishConnection();
         lttng_viewer_list_sessions sessions = getSessions();
         lttng_viewer_session lttng_viewer_session = sessions.session_list[0];
-        attachToSession(lttng_viewer_session);
+        lttng_viewer_attach_session_response attachedSession = attachToSession(lttng_viewer_session);
+        String metaData = getMetadata(attachedSession);
+        getPackets(attachedSession);
     }
 
     private void establishConnection() throws IOException {
@@ -128,7 +139,7 @@ public class LTTngRelayD24Test {
         return listingResponse;
     }
 
-    private void attachToSession(lttng_viewer_session lttng_viewer_session) throws IOException {
+    private lttng_viewer_attach_session_response attachToSession(lttng_viewer_session lttng_viewer_session) throws IOException {
         lttng_viewer_cmd listSessionsCmd = new lttng_viewer_cmd();
         listSessionsCmd.cmd = lttng_viewer_command.VIEWER_ATTACH_SESSION;
         outNet.write(listSessionsCmd.getBytes());
@@ -161,5 +172,100 @@ public class LTTngRelayD24Test {
         for (lttng_viewer_stream stream : attachResponse.stream_list) {
             System.out.println("Stream id: " + stream.id  + " name: " + new String(stream.channel_name) + " path: " + new String(stream.path_name));
         }
+
+        return attachResponse;
+    }
+
+    private String getMetadata(lttng_viewer_attach_session_response attachedSession) throws IOException {
+
+        for (lttng_viewer_stream stream : attachedSession.stream_list) {
+            if (stream.metadata_flag == 1) {
+                lttng_viewer_cmd connectCommand = new lttng_viewer_cmd();
+                lttng_viewer_connect connectPayload = new lttng_viewer_connect();
+                connectCommand.cmd = lttng_viewer_command.VIEWER_GET_METADATA;
+                connectCommand.data_size = connectPayload.size();
+                outNet.write(connectCommand.getBytes());
+                outNet.flush();
+
+                lttng_viewer_get_metadata metadataRequest = new lttng_viewer_get_metadata();
+                metadataRequest.stream_id = stream.id;
+                outNet.write(metadataRequest.getBytes());
+                outNet.flush();
+
+
+                lttng_viewer_metadata_packet metaDataPacket = new lttng_viewer_metadata_packet();
+                final int BUFFER_SIZE = 12;
+                byte[] data = new byte[BUFFER_SIZE];
+                inNet.readFully(data, 0, BUFFER_SIZE);
+                metaDataPacket.populate(data);
+                assertEquals(lttng_viewer_get_metadata_return_code.VIEWER_METADATA_OK, metaDataPacket.status);
+
+                metaDataPacket.data = new byte[(int)metaDataPacket.len];
+                inNet.readFully(metaDataPacket.data, 0, (int)metaDataPacket.len);
+                String strMetadata = new String(metaDataPacket.data);
+                assertFalse(strMetadata.isEmpty());
+                return strMetadata;
+            }
+        }
+
+        return null;
+    }
+
+    private void getPackets(lttng_viewer_attach_session_response attachedSession) throws IOException {
+        lttng_viewer_cmd connectCommand = new lttng_viewer_cmd();
+        lttng_viewer_connect connectPayload = new lttng_viewer_connect();
+        connectCommand.cmd = lttng_viewer_command.VIEWER_GET_NEXT_INDEX;
+        connectCommand.data_size = connectPayload.size();
+        outNet.write(connectCommand.getBytes());
+        outNet.flush();
+
+        for (lttng_viewer_stream stream : attachedSession.stream_list) {
+            if (stream.metadata_flag != 1) {
+                lttng_viewer_get_next_index indexRequest = new lttng_viewer_get_next_index();
+                indexRequest.stream_id = stream.id;
+                outNet.write(indexRequest.getBytes());
+                outNet.flush();
+
+                lttng_viewer_index indexReply = new lttng_viewer_index();
+                byte[] data = new byte[indexReply.size()];
+                inNet.readFully(data, 0, indexReply.size());
+                indexReply.populate(data);
+
+                // Nothing else supported for now
+                assertEquals(0, indexReply.flags);
+
+                getPacketFromStream(indexReply);
+            }
+        }
+    }
+
+    private void getPacketFromStream(lttng_viewer_index index) throws IOException {
+        lttng_viewer_cmd connectCommand = new lttng_viewer_cmd();
+        lttng_viewer_connect connectPayload = new lttng_viewer_connect();
+        connectCommand.cmd = lttng_viewer_command.VIEWER_GET_PACKET;
+        connectCommand.data_size = connectPayload.size();
+        outNet.write(connectCommand.getBytes());
+        outNet.flush();
+
+        lttng_viewer_get_packet packetRequest = new lttng_viewer_get_packet();
+        //FIXME why do we need a cast here?
+        packetRequest.len = (int)(index.packet_size / 8);
+        packetRequest.offset = index.offset;
+        packetRequest.stream_id = index.stream_id;
+        outNet.write(packetRequest.getBytes());
+        outNet.flush();
+
+        lttng_viewer_trace_packet tracePacket = new lttng_viewer_trace_packet();
+        final int BUFFER_SIZE = 12;
+        byte[] data = new byte[BUFFER_SIZE];
+        inNet.readFully(data, 0, BUFFER_SIZE);
+        tracePacket.populate(data);
+        assertEquals(lttng_viewer_get_packet_return_code.VIEWER_GET_PACKET_OK, tracePacket.status);
+        // Nothing else supported for now
+        assertEquals(0, tracePacket.flags);
+
+        tracePacket.data = new byte[tracePacket.len];
+        inNet.readFully(tracePacket.data, 0, tracePacket.len);
+        assertTrue(tracePacket.data.length > 0);
     }
 }
