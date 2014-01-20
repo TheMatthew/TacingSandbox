@@ -155,7 +155,7 @@ public interface LTTngRelayDCommands2_4 {
         VIEWER_GET_PACKET_OK(1),
         VIEWER_GET_PACKET_RETRY(2),
         VIEWER_GET_PACKET_ERR(3),
-        VIEWER_GET_PACKET_EOF(2);
+        VIEWER_GET_PACKET_EOF(4);
         private int code;
 
         private lttng_viewer_get_packet_return_code(int c) {
@@ -400,17 +400,7 @@ public interface LTTngRelayDCommands2_4 {
         public void populate(byte[] data) {
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
-            List<lttng_viewer_session> temp = new ArrayList<>();
             sessions_count = bb.getInt();
-            for (int i = 0; i < sessions_count && bb.hasRemaining(); i++) {
-                lttng_viewer_session viewer = new lttng_viewer_session();
-
-                byte[] subData = new byte[viewer.size()];
-                bb.get(subData, 0, viewer.size());
-                viewer.populate(subData);
-                temp.add(viewer);
-            }
-            session_list = temp.toArray(new lttng_viewer_session[0]);
         }
 
         @Override
@@ -474,18 +464,7 @@ public interface LTTngRelayDCommands2_4 {
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
             status = lttng_viewer_attach_return_code.values()[bb.getInt() - 1];
-
-            List<lttng_viewer_stream> temp = new ArrayList<>();
             streams_count = bb.getInt();
-            for (int i = 0; i < streams_count && bb.hasRemaining(); i++) {
-                lttng_viewer_stream stream = new lttng_viewer_stream();
-
-                byte[] subData = new byte[stream.size()];
-                bb.get(subData, 0, stream.size());
-                stream.populate(subData);
-                temp.add(stream);
-            }
-            stream_list = temp.toArray(new lttng_viewer_stream[0]);
         }
     }
 
