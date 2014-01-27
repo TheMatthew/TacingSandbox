@@ -227,7 +227,7 @@ public interface LTTngRelayDCommands2_4 {
     /**
 	 * get viewer session response to command
 	 */
-	public class lttng_viewer_session implements RelayResponse, FixedSize, RelayCommand {
+	public class lttng_viewer_session implements RelayResponse, FixedSize {
 	    public long id;
 	    public int live_timer;
 	    public int clients;
@@ -252,20 +252,6 @@ public interface LTTngRelayDCommands2_4 {
 	    @Override
 	    public int size() {
 	        return LTTNG_VIEWER_HOST_NAME_MAX + LTTNG_VIEWER_NAME_MAX + (Long.SIZE + Integer.SIZE + Integer.SIZE + Integer.SIZE) / 8;
-	    }
-
-	    @Override
-	    public byte[] getBytes() {
-            byte data[] = new byte[size()];
-            ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.putLong(id);
-            bb.putInt(live_timer);
-            bb.putInt(clients);
-            bb.putInt(streams);
-
-	        bb.put(hostname);
-	        bb.put(session_name);
-	        return data;
 	    }
 
 	}
@@ -330,6 +316,7 @@ public interface LTTngRelayDCommands2_4 {
         public byte[] getBytes() {
             byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(data_size);
             bb.putInt(cmd.getCommand());
             bb.putInt(cmd_version);
@@ -373,7 +360,7 @@ public interface LTTngRelayDCommands2_4 {
             viewer_session_id = bb.getLong();
             major = bb.getInt();
             minor = bb.getInt();
-            type = lttng_viewer_connection_type.values()[bb.getInt()];
+            bb.getInt(); // Should not be used, see http://bugs.lttng.org/issues/728
         }
 
         @Override
@@ -392,7 +379,7 @@ public interface LTTngRelayDCommands2_4 {
     /**
      * VIEWER_LIST_SESSIONS payload.
      */
-    public class lttng_viewer_list_sessions implements RelayResponse, RelayCommand {
+    public class lttng_viewer_list_sessions implements RelayResponse {
         public int sessions_count;
         public lttng_viewer_session session_list[];
 
@@ -401,20 +388,6 @@ public interface LTTngRelayDCommands2_4 {
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
             sessions_count = bb.getInt();
-        }
-
-        @Override
-        public byte[] getBytes() {
-            byte data[] = new byte[getSize()];
-            ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            bb.putInt(sessions_count);
-            if (session_list != null) {
-                for (int i = 0; i < session_list.length; i++) {
-                    bb.put(session_list[i].getBytes());
-                }
-            }
-            return data;
         }
 
         public int getSize() {
@@ -441,6 +414,7 @@ public interface LTTngRelayDCommands2_4 {
         public byte[] getBytes() {
             byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(session_id);
             bb.putLong(offset);
             bb.putInt(seek.getCommand());
@@ -481,6 +455,7 @@ public interface LTTngRelayDCommands2_4 {
         public byte[] getBytes() {
             byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(stream_id);
             return data;
         }
@@ -540,6 +515,7 @@ public interface LTTngRelayDCommands2_4 {
         public byte[] getBytes() {
             byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(stream_id);
             bb.putLong(offset);
             bb.putInt(len);
@@ -584,6 +560,7 @@ public interface LTTngRelayDCommands2_4 {
         public byte[] getBytes() {
             byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(stream_id);
             return data;
         }

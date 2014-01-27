@@ -38,6 +38,7 @@ import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lt
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_index;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_list_sessions;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_metadata_packet;
+import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_next_index_return_code;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_session;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_stream;
 import org.eclipse.linuxtools.lttng.sandbox.testrelayd.LTTngRelayDCommands2_4.lttng_viewer_trace_packet;
@@ -167,7 +168,7 @@ public class LTTngRelayD24Test {
         attachResponse.stream_list = temp.toArray(new lttng_viewer_stream[0]);
 
         assertEquals(LTTngRelayDCommands2_4.lttng_viewer_attach_return_code.VIEWER_ATTACH_OK, attachResponse.status);
-        assertTrue(attachResponse.stream_list.length > 0);
+        assertTrue("Need at least one for the metadata and one channel", attachResponse.stream_list.length > 1);
 
         for (lttng_viewer_stream stream : attachResponse.stream_list) {
             System.out.println("Stream id: " + stream.id  + " name: " + new String(stream.channel_name) + " path: " + new String(stream.path_name));
@@ -212,34 +213,46 @@ public class LTTngRelayD24Test {
     }
 
     private void getPackets(lttng_viewer_attach_session_response attachedSession) throws IOException {
-        lttng_viewer_cmd connectCommand = new lttng_viewer_cmd();
-        lttng_viewer_connect connectPayload = new lttng_viewer_connect();
-        connectCommand.cmd = lttng_viewer_command.VIEWER_GET_NEXT_INDEX;
-        connectCommand.data_size = connectPayload.size();
-        outNet.write(connectCommand.getBytes());
-        outNet.flush();
+        int numPacketsReceived = 0;
+        while (numPacketsReceived < 100) {
+            for (lttng_viewer_stream stream : attachedSession.stream_list) {
+                if (stream.metadata_flag != 1) {
+                    lttng_viewer_cmd connectCommand = new lttng_viewer_cmd();
+                    lttng_viewer_connect connectPayload = new lttng_viewer_connect();
+                    connectCommand.cmd = lttng_viewer_command.VIEWER_GET_NEXT_INDEX;
+                    connectCommand.data_size = connectPayload.size();
+                    outNet.write(connectCommand.getBytes());
+                    outNet.flush();
 
-        for (lttng_viewer_stream stream : attachedSession.stream_list) {
-            if (stream.metadata_flag != 1) {
-                lttng_viewer_get_next_index indexRequest = new lttng_viewer_get_next_index();
-                indexRequest.stream_id = stream.id;
-                outNet.write(indexRequest.getBytes());
-                outNet.flush();
+                    lttng_viewer_get_next_index indexRequest = new lttng_viewer_get_next_index();
+                    indexRequest.stream_id = stream.id;
+                    outNet.write(indexRequest.getBytes());
+                    outNet.flush();
 
-                lttng_viewer_index indexReply = new lttng_viewer_index();
-                byte[] data = new byte[indexReply.size()];
-                inNet.readFully(data, 0, indexReply.size());
-                indexReply.populate(data);
+                    lttng_viewer_index indexReply = new lttng_viewer_index();
+                    byte[] data = new byte[indexReply.size()];
+                    inNet.readFully(data, 0, indexReply.size());
+                    indexReply.populate(data);
 
-                // Nothing else supported for now
-                assertEquals(0, indexReply.flags);
+                    // Nothing else supported for now
+                    assertEquals(0, indexReply.flags);
+                    //assertEquals(stream.id, indexReply.stream_id);
 
-                getPacketFromStream(indexReply);
+                    System.out.print("Next index for stream " + stream.id + "(" + indexReply.stream_id + ") ... "); //$NON-NLS-1$
+                    if (indexReply.status == lttng_viewer_next_index_return_code.VIEWER_INDEX_OK) {
+                        System.out.println("OK"); //$NON-NLS-1$
+                        if(getPacketFromStream(indexReply, stream.id)) {
+                            numPacketsReceived++;
+                        }
+                    } else if (indexReply.status == lttng_viewer_next_index_return_code.VIEWER_INDEX_RETRY) {
+                        System.out.println("Retry"); //$NON-NLS-1$
+                    }
+                }
             }
         }
     }
 
-    private void getPacketFromStream(lttng_viewer_index index) throws IOException {
+    private boolean getPacketFromStream(lttng_viewer_index index, long id) throws IOException {
         lttng_viewer_cmd connectCommand = new lttng_viewer_cmd();
         lttng_viewer_connect connectPayload = new lttng_viewer_connect();
         connectCommand.cmd = lttng_viewer_command.VIEWER_GET_PACKET;
@@ -251,10 +264,11 @@ public class LTTngRelayD24Test {
         //FIXME why do we need a cast here?
         packetRequest.len = (int)(index.packet_size / 8);
         packetRequest.offset = index.offset;
-        packetRequest.stream_id = index.stream_id;
+        packetRequest.stream_id = id;
         outNet.write(packetRequest.getBytes());
         outNet.flush();
 
+        System.out.print("get packet...");
         lttng_viewer_trace_packet tracePacket = new lttng_viewer_trace_packet();
         final int BUFFER_SIZE = 12;
         byte[] data = new byte[BUFFER_SIZE];
@@ -264,8 +278,16 @@ public class LTTngRelayD24Test {
         // Nothing else supported for now
         assertEquals(0, tracePacket.flags);
 
-        tracePacket.data = new byte[tracePacket.len];
-        inNet.readFully(tracePacket.data, 0, tracePacket.len);
-        assertTrue(tracePacket.data.length > 0);
+        if (tracePacket.status == lttng_viewer_get_packet_return_code.VIEWER_GET_PACKET_OK) {
+            System.out.println("OK");
+            tracePacket.data = new byte[tracePacket.len];
+            inNet.readFully(tracePacket.data, 0, tracePacket.len);
+            assertTrue(tracePacket.data.length > 0);
+            return true;
+        } else if (tracePacket.status == lttng_viewer_get_packet_return_code.VIEWER_GET_PACKET_RETRY) {
+            System.out.println("Retry");
+        }
+
+        return false;
     }
 }
