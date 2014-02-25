@@ -24,27 +24,15 @@ import java.util.List;
  * /live2013/src/bin/lttng-relayd/lttng-viewer.h
  *
  * @author Matthew Khouzam
- *
  */
 public interface LTTngRelayDCommands2_4 {
-    /**
-     * maximum path length ripped from <linux/limits.h>
-     */
-    final static int PATH_MAX = 255;
-    /**
-     * maximum name length (for a channel) ripped from <linux/limits.h>
-     */
-    final static int NAME_MAX = 255;
-    /**
-     * maximum name length for the host name ripped from <linux/limits.h>
-     */
-    final static int HOST_NAME_MAX = 80;
+
+    final static int LTTNG_VIEWER_PATH_MAX = 4096;
+    final static int LTTNG_VIEWER_NAME_MAX = 255;
+    final static int LTTNG_VIEWER_HOST_NAME_MAX = 64;
 
     /**
      * Command sent, needs a getBytes to stream the data
-     *
-     * @author Matthew Khouzam
-     *
      */
     public interface RelayCommand {
         /**
@@ -57,9 +45,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * Command received, needs a populate to fill the data
-     *
-     * @author Matthew Khouzam
-     *
      */
     public interface RelayResponse {
         /**
@@ -73,8 +58,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * Fixed size, helps if you have an array of that type
-     *
-     * @author Matthew Khouzam
      */
     public interface FixedSize {
         /**
@@ -87,8 +70,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * viewer commands
-     *
-     * @author Matthew Khouzam
      */
     enum lttng_viewer_command {
         /** get version */
@@ -116,9 +97,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * return codes for "viewer attach" command
-     *
-     * @author Matthew Khouzam
-     *
      */
     enum lttng_viewer_attach_return_code {
         /** If the attach command succeeded. */
@@ -144,9 +122,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * get next index return code (hope it's viewer_index_ok)
-     *
-     * @author Matthew Khouzam
-     *
      */
     enum lttng_viewer_next_index_return_code {
         /** Index is available. */
@@ -158,7 +133,9 @@ public interface LTTngRelayDCommands2_4 {
         /** Unknown error. */
         VIEWER_INDEX_ERR(4),
         /** Inactive stream beacon. */
-        VIEWER_INDEX_INACTIVE(5);
+        VIEWER_INDEX_INACTIVE(5),
+        /** End of index file. */
+        VIEWER_INDEX_EOF(6);
 
         private int code;
 
@@ -173,16 +150,12 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * Get packet return code
-     *
-     * @author Matthew Khouzam
-     *
      */
     enum lttng_viewer_get_packet_return_code {
         VIEWER_GET_PACKET_OK(1),
         VIEWER_GET_PACKET_RETRY(2),
-        /** New metadata is required to read this packet. */
-        VIEWER_GET_PACKET_NEW_METADATA(3),
-        VIEWER_GET_PACKET_ERR(4);
+        VIEWER_GET_PACKET_ERR(3),
+        VIEWER_GET_PACKET_EOF(4);
         private int code;
 
         private lttng_viewer_get_packet_return_code(int c) {
@@ -197,9 +170,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * Get metadata return code
-     *
-     * @author Matthew Khouzam
-     *
      */
     enum lttng_viewer_get_metadata_return_code {
         VIEWER_METADATA_OK(1),
@@ -219,9 +189,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * get viewer connection type
-     *
-     * @author Matthew Khouzam
-     *
      */
     enum lttng_viewer_connection_type {
         VIEWER_CLIENT_COMMAND(1),
@@ -240,9 +207,6 @@ public interface LTTngRelayDCommands2_4 {
 
     /**
      * seek command
-     *
-     * @author Matthew Khouzam
-     *
      */
     enum lttng_viewer_seek {
         /** Receive the trace packets from the beginning. */
@@ -261,12 +225,83 @@ public interface LTTngRelayDCommands2_4 {
     }
 
     /**
+	 * get viewer session response to command
+	 */
+	public class lttng_viewer_session implements RelayResponse, FixedSize {
+	    public long id;
+	    public int live_timer;
+	    public int clients;
+	    public int streams;
+
+	    public byte hostname[] = new byte[LTTNG_VIEWER_HOST_NAME_MAX];
+	    public byte session_name[] = new byte[LTTNG_VIEWER_NAME_MAX];
+
+	    @Override
+	    public void populate(byte[] data) {
+	        ByteBuffer bb = ByteBuffer.wrap(data);
+	        bb.order(ByteOrder.BIG_ENDIAN);
+	        id = bb.getLong();
+	        live_timer = bb.getInt();
+	        clients = bb.getInt();
+	        streams = bb.getInt();
+
+	        bb.get(hostname, 0, hostname.length);
+	        bb.get(session_name, 0, session_name.length);
+	    }
+
+	    @Override
+	    public int size() {
+	        return LTTNG_VIEWER_HOST_NAME_MAX + LTTNG_VIEWER_NAME_MAX + (Long.SIZE + Integer.SIZE + Integer.SIZE + Integer.SIZE) / 8;
+	    }
+
+	}
+
+	/**
+	 * Get response of viewer stream
+	 */
+	public class lttng_viewer_stream implements FixedSize, RelayResponse {
+	    /**
+	     * id of the stream
+	     */
+	    public long id;
+	    /**
+	     * the id of the trace in ctf. Should be a uuid???
+	     */
+	    public long ctf_trace_id;
+        /**
+         * metadata TODO: understand me
+         */
+        public int metadata_flag;
+	    /**
+	     * the path
+	     */
+	    public byte path_name[] = new byte[LTTNG_VIEWER_PATH_MAX];
+	    /**
+	     * The channel, traditionally channel0
+	     */
+	    public byte channel_name[] = new byte[LTTNG_VIEWER_NAME_MAX];
+
+	    @Override
+	    public void populate(byte[] data) {
+	        ByteBuffer bb = ByteBuffer.wrap(data);
+	        bb.order(ByteOrder.BIG_ENDIAN);
+	        id = bb.getLong();
+	        ctf_trace_id = bb.getLong();
+	        metadata_flag = bb.getInt();
+	        bb.get(path_name, 0, LTTNG_VIEWER_PATH_MAX);
+	        bb.get(channel_name, 0, LTTNG_VIEWER_NAME_MAX);
+	    }
+
+        @Override
+        public int size() {
+            return (Long.SIZE + Long.SIZE + Integer.SIZE) / 8 + LTTNG_VIEWER_PATH_MAX + LTTNG_VIEWER_NAME_MAX;
+        }
+	}
+
+	/**
      * The LTTng command
-     *
-     * @author Matthew Khouzam
-     *
      */
-    public class lttng_viewer_cmd implements RelayCommand {
+    public class lttng_viewer_cmd implements FixedSize, RelayCommand {
         /**
          * data size following this header, you normally attach a payload that
          * one, in bytes
@@ -279,104 +314,27 @@ public interface LTTngRelayDCommands2_4 {
 
         @Override
         public byte[] getBytes() {
-            byte data[] = new byte[16];
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(data_size);
             bb.putInt(cmd.getCommand());
             bb.putInt(cmd_version);
             return data;
         }
-    }
-
-    /**
-     * get viewer session response to command
-     *
-     * @author Matthew Khouzam
-     *
-     */
-    public class lttng_viewer_session implements RelayResponse, FixedSize, RelayCommand {
-        public long id;
-        /* FIXME: sizes */
-        public byte hostname[] = new byte[HOST_NAME_MAX];
-        public byte session_name[] = new byte[NAME_MAX];
-        public int live_timer;
-        public int clients;
-
-        @Override
-        public void populate(byte[] data) {
-            ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            id = bb.getLong();
-            bb.get(hostname, 0, hostname.length);
-            bb.get(session_name, 0, session_name.length);
-            live_timer = bb.getInt();
-            clients = bb.getInt();
-        }
 
         @Override
         public int size() {
-            return HOST_NAME_MAX + NAME_MAX + (Long.SIZE + Integer.SIZE + Integer.SIZE) / 8;
-        }
-
-        @Override
-        public byte[] getBytes() {
-            byte data[] = new byte[size()];
-            ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.putLong(id);
-            bb.put(hostname);
-            bb.put(session_name);
-            bb.putInt(live_timer);
-            bb.putInt(clients);
-            return data;
-        }
-
-    }
-
-    /**
-     * Get response of viewer stream
-     *
-     * @author Matthew Khouzam
-     *
-     */
-    public class lttng_viewer_stream implements RelayResponse {
-        /**
-         * id of the stream
-         */
-        public long id;
-        /**
-         * the id of the trace in ctf. Should be a uuid???
-         */
-        public long ctf_trace_id;
-        /* FIXME : sizes */
-        /**
-         * the path
-         */
-        public byte path_name[] = new byte[PATH_MAX];
-        /**
-         * The channel, traditionally channel0
-         */
-        public byte channel_name[] = new byte[NAME_MAX];
-        /**
-         * metadata TODO: understand me
-         */
-        public int metadata_flag;
-
-        @Override
-        public void populate(byte[] data) {
-            ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            id = bb.getLong();
-            ctf_trace_id = bb.getLong();
-            bb.get(path_name, 0, PATH_MAX);
-            bb.get(channel_name, 0, NAME_MAX);
-            metadata_flag = bb.getInt();
+            return (Long.SIZE + Integer.SIZE + Integer.SIZE) / 8;
         }
     }
 
     /**
-     * VIEWER_VERSION payload.
+     * CONNECT payload.
      */
     public class lttng_viewer_connect implements RelayResponse, FixedSize, RelayCommand {
+        /** session id, counts from 1 and increments by session */
+        public long viewer_session_id;
         /**
          * Major version, hint, it's 2
          */
@@ -389,22 +347,20 @@ public interface LTTngRelayDCommands2_4 {
          * type of connect to {@link lttng_viewer_connection_type}
          */
         public lttng_viewer_connection_type type;
-        /** session id, counts from 1 and increments by session */
-        public long viewer_session_id;
 
         @Override
         public int size() {
-            return (Integer.SIZE + Integer.SIZE + Integer.SIZE + Long.SIZE) / 8;
+            return (Long.SIZE + Integer.SIZE + Integer.SIZE + Integer.SIZE) / 8;
         }
 
         @Override
         public void populate(byte[] data) {
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
+            viewer_session_id = bb.getLong();
             major = bb.getInt();
             minor = bb.getInt();
-            type = lttng_viewer_connection_type.values()[bb.getInt()];
-            viewer_session_id = bb.getLong();
+            bb.getInt(); // Should not be used, see http://bugs.lttng.org/issues/728
         }
 
         @Override
@@ -412,20 +368,18 @@ public interface LTTngRelayDCommands2_4 {
             byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
+            bb.putLong(viewer_session_id);
             bb.putInt(major);
             bb.putInt(minor);
             bb.putInt(type.getCommand());
-            bb.putLong(viewer_session_id);
             return data;
         }
-
     }
 
     /**
      * VIEWER_LIST_SESSIONS payload.
-     * @author Matthew Khouzam
      */
-    public class lttng_viewer_list_sessions implements RelayResponse, RelayCommand {
+    public class lttng_viewer_list_sessions implements RelayResponse {
         public int sessions_count;
         public lttng_viewer_session session_list[];
 
@@ -433,90 +387,89 @@ public interface LTTngRelayDCommands2_4 {
         public void populate(byte[] data) {
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
-            List<lttng_viewer_session> temp = new ArrayList<lttng_viewer_session>();
             sessions_count = bb.getInt();
-            for (int i = 0; i < sessions_count && bb.hasRemaining(); i++) {
-                lttng_viewer_session viewer = new lttng_viewer_session();
-                viewer.populate(data);
-                temp.add(viewer);
-            }
-            session_list = temp.toArray(new lttng_viewer_session[0]);
         }
 
-        @Override
-        public byte[] getBytes() {
-            byte data[] = new byte[4 + ((session_list == null) ? 0 : (session_list.length * (new lttng_viewer_session()).size()))];
-            ByteBuffer bb = ByteBuffer.wrap(data);
-            bb.order(ByteOrder.BIG_ENDIAN);
-            bb.putInt(sessions_count);
-            if (session_list != null) {
-                for (int i = 0; i < session_list.length; i++) {
-                    bb.put(session_list[i].getBytes());
-                }
-            }
-            return data;
+        public int getSize() {
+            return 4 + ((session_list == null) ? 0 : (session_list.length * (new lttng_viewer_session()).size()));
         }
     }
 
     /**
      * VIEWER_ATTACH_SESSION payload.
      */
-    public class lttng_viewer_attach_session_request implements RelayCommand {
+    public class lttng_viewer_attach_session_request implements FixedSize, RelayCommand {
         public long session_id;
+        /** unused for now */
+        public long offset;
+        /** enum lttng_viewer_seek */
+        public lttng_viewer_seek seek;
+
+        @Override
+        public int size() {
+            return (Long.SIZE + Integer.SIZE + Integer.SIZE + Integer.SIZE) / 8;
+        }
 
         @Override
         public byte[] getBytes() {
-            byte data[] = new byte[8];
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
             bb.putLong(session_id);
+            bb.putLong(offset);
+            bb.putInt(seek.getCommand());
             return data;
         }
-
     }
 
     /**
      * Attach session response
-     * @author Matthew Khouzam
-     *
      */
-    public class lttng_viewer_attach_session_response {
+    public class lttng_viewer_attach_session_response implements RelayResponse {
         /** enum lttng_viewer_attach_return_code */
         public lttng_viewer_attach_return_code status;
         /** how many streams are there */
         public int streams_count;
         /** public class lttng_viewer_stream */
         public lttng_viewer_stream stream_list[];
+
+        @Override
+        public void populate(byte[] data) {
+            ByteBuffer bb = ByteBuffer.wrap(data);
+            bb.order(ByteOrder.BIG_ENDIAN);
+            status = lttng_viewer_attach_return_code.values()[bb.getInt() - 1];
+            streams_count = bb.getInt();
+        }
     }
 
     /**
      * VIEWER_GET_NEXT_INDEX payload.
      */
-    public class lttng_viewer_get_next_index implements RelayResponse {
+    public class lttng_viewer_get_next_index implements RelayCommand, FixedSize {
         /**
          * the id of thje stream
          */
         public long stream_id;
 
         @Override
-        public void populate(byte[] data) {
+        public byte[] getBytes() {
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
-            stream_id = bb.getLong();
+            bb.putLong(stream_id);
+            return data;
+        }
+
+        @Override
+        public int size() {
+            return Long.SIZE / 8;
         }
     }
 
     /**
      * the index?
-     *
-     * @author Matthew Khouzam
-     *
      */
-    public class lttng_viewer_index implements RelayResponse {
-        public lttng_viewer_next_index_return_code status;
-        public int new_metadata; /*
-                                  * the viewer must query new metadata to read
-                                  * this packet.
-                                  */
+    public class lttng_viewer_index implements RelayResponse, FixedSize {
         public long offset;
         public long packet_size;
         public long content_size;
@@ -525,12 +478,13 @@ public interface LTTngRelayDCommands2_4 {
         public long events_discarded;
         public long stream_id;
 
+        public lttng_viewer_next_index_return_code status;
+        public int flags;
+
         @Override
         public void populate(byte[] data) {
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
-            status = lttng_viewer_next_index_return_code.values()[bb.getInt()];
-            new_metadata = bb.getInt();
             offset = bb.getLong();
             packet_size = bb.getLong();
             content_size = bb.getLong();
@@ -539,85 +493,95 @@ public interface LTTngRelayDCommands2_4 {
             events_discarded = bb.getLong();
             stream_id = bb.getLong();
 
+            status = lttng_viewer_next_index_return_code.values()[bb.getInt() - 1];
+            flags = bb.getInt();
+        }
+
+        @Override
+        public int size() {
+            return (Long.SIZE * 7 + Integer.SIZE * 2) / 8;
         }
     }
 
     /**
      * VIEWER_GET_PACKET payload.
      */
-    public class lttng_viewer_get_packet implements RelayResponse {
+    public class lttng_viewer_get_packet implements RelayCommand, FixedSize {
         public long stream_id;
         public long offset;
-        public long len;
+        public int len;
 
         @Override
-        public void populate(byte[] data) {
+        public byte[] getBytes() {
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
-            stream_id = bb.getLong();
-            offset = bb.getLong();
-            len = bb.getLong();
+            bb.putLong(stream_id);
+            bb.putLong(offset);
+            bb.putInt(len);
+            return data;
+        }
 
+        @Override
+        public int size() {
+            return (Long.SIZE + Long.SIZE + Integer.SIZE) / 8;
         }
     }
 
     /**
      * Response to getpacket command
-     *
-     * @author Matthew Khouzam
-     *
      */
     public class lttng_viewer_trace_packet implements RelayResponse {
-        public int status; /* enum lttng_viewer_get_packet_return_code */
-        public long len;
+        public lttng_viewer_get_packet_return_code status; /* enum lttng_viewer_get_packet_return_code */
+        public int len;
+        public int flags;
         public byte data[];
 
         @Override
         public void populate(byte[] input) {
             ByteBuffer bb = ByteBuffer.wrap(input);
             bb.order(ByteOrder.BIG_ENDIAN);
-            status = bb.getInt();
-            len = bb.getLong();
-            data = new byte[(int) len];
-            bb.get(data, 0, (int) len);
+            status = lttng_viewer_get_packet_return_code.values()[bb.getInt() - 1];
+            len = bb.getInt();
+            flags = bb.getInt();
         }
     }
 
     /**
      * VIEWER_GET_METADATA payload.
      */
-    public class lttng_viewer_get_metadata implements RelayResponse {
+    public class lttng_viewer_get_metadata implements FixedSize, RelayCommand {
         /**
          * The stream id
          */
         public long stream_id;
 
         @Override
-        public void populate(byte[] data) {
+        public byte[] getBytes() {
+            byte data[] = new byte[size()];
             ByteBuffer bb = ByteBuffer.wrap(data);
             bb.order(ByteOrder.BIG_ENDIAN);
-            stream_id = bb.getInt();
+            bb.putLong(stream_id);
+            return data;
+        }
+
+        @Override
+        public int size() {
+            return Long.SIZE / 8;
         }
     }
 
-    /**
-     *
-     * @author Matthew Khouzam
-     *
-     */
     public class lttng_viewer_metadata_packet implements RelayResponse {
-        public lttng_viewer_get_metadata_return_code status;
         public long len;
+        public lttng_viewer_get_metadata_return_code status;
         public byte data[];
 
         @Override
         public void populate(byte[] input) {
             ByteBuffer bb = ByteBuffer.wrap(input);
             bb.order(ByteOrder.BIG_ENDIAN);
-            status = lttng_viewer_get_metadata_return_code.values()[bb.getInt()];
             len = bb.getLong();
-            data = new byte[(int) len];
-            bb.get(data, 0, (int) len);
+            status = lttng_viewer_get_metadata_return_code.values()[bb.getInt() - 1];
         }
     }
 
